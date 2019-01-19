@@ -1,0 +1,16 @@
+[core]
+output = table
+disable_confirm_prompt = yes
+collect_telemetry = no
+first_run = yes
+
+[logging]
+enable_log_file = no
+
+[storage]
+connection_string = DefaultEndpointsProtocol=https;AccountName={{ AZURE_STORAGE_ACCOUNT_NAME }};AccountKey={{ AZURE_STORAGE_ACCOUNT_KEY }};EndpointSuffix=core.windows.net
+account = {{ AZURE_STORAGE_ACCOUNT_NAME }}
+key = {{ AZURE_STORAGE_ACCOUNT_KEY }}
+
+[cloud]
+name = AzureCloud

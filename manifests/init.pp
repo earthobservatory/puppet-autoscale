@@ -55,6 +55,38 @@ class autoscale inherits verdi {
     replace => false,
   }
 
+  
+  #####################################################
+  # install Azure credentials and config
+  #####################################################
+
+  file { "/home/$user/.azure":
+    ensure  => directory,
+    owner   => $user,
+    group   => $group,
+    mode    => 0700,
+  }
+
+
+  file { "/home/$user/.azure/azure_credentials.json":
+    ensure  => present,
+    owner   => $user,
+    group   => $group,
+    mode    => 0600,
+    content => template('autoscale/azure_credentials.json'),
+    replace => false,
+  }
+
+
+  file { "/home/$user/.azure/config":
+    ensure  => present,
+    owner   => $user,
+    group   => $group,
+    mode    => 0600,
+    content => template('autoscale/azure_config'),
+    replace => false,
+  }
+
 
   #####################################################
   # install gof3r config

@@ -1,4 +1,4 @@
-#!/bin/sh -e
+#!/bin/bash -e
 # This script will DESTROY the first ephemeral/EBS volume and remount it for HySDS work dir.
 # This script will DESTROY the second ephemeral/EBS volume and remount it for Docker volume storage.
 
@@ -31,111 +31,156 @@ fi
 $stop_docker
 
 # get ephemeral storage devices
-EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ephemeral | sort` )
-EPH_BLK_DEVS_CNT=${#EPH_BLK_DEVS[@]}
-echo "Number of ephemeral storage devices: $EPH_BLK_DEVS_CNT"
+# EPH_BLK_DEVS_CNT=1
+# EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ephemeral | sort` )
+# EPH_BLK_DEVS_CNT=${#EPH_BLK_DEVS[@]}
+# echo "Number of ephemeral storage devices: $EPH_BLK_DEVS_CNT"
 
 # get EBS block devices
-EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ebs | sort` )
-EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
-echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
+# EBS_BLK_DEVS_CNT=2
+# EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ebs | sort` )
+# EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
+# echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
 
 # set devices
-if [ "$EPH_BLK_DEVS_CNT" -ge 2 ]; then
-  DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
-  DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
-elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
-  DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
-  if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
-    DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-  else
-    DEV2=/dev/xvdc
-  fi
+# no need for advanced disk mapping detection in Azure, commented out
+
+# if [ "$EPH_BLK_DEVS_CNT" -ge 2 ]; then
+#   DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+#   DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
+# elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
+#   DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+#   if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+#     DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+#   else
+#     DEV2=/dev/xvdc
+#   fi
+# else
+#   if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
+#     DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+#     DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
+#   elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
+#     DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+#     DEV2=/dev/xvdc
+#   else
+#     DEV1=/dev/xvdb
+#     DEV2=/dev/xvdc
+#   fi
+# fi
+
+############ START AZURE ADAPTATION
+
+# Check if /dev/sdb (which is ALWAYS the temporary/ephemeral storage in Azure)
+# exceeeds 150GB. If it is, partition 50GB to Docker and rest to /data,
+# else, dedicate the storage to Docker
+
+TEMP_DISK='/dev/sdb'
+TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
+
+# Unmount the temporary disk first
+# TODO: may have to implement disk autodetection, if sdb1 doesn't actually 
+# exist because somehow the disk persisted after a reboot
+umount /dev/sdb1
+
+# Write a new partition table to temporary disk, effectively nuking it
+parted --script /dev/sdb mktable gpt
+
+if [[ "$TEMP_DISK_SIZE" -gt "161061273600" ]]; then
+  echo "Partitioning disk, dedicating 50GB to Docker"
+  parted --script -a optimal /dev/sdb mkpart docker '0%' 51200MiB \
+                                      mkpart data xfs 51200MiB '100%'
+  DEV1=/dev/sdb1
+  DEV2=/dev/sdb2
 else
-  if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
-    DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
-  elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
-    DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DEV2=/dev/xvdc
+  echo "Not partitioning disk, dedicating /dev/sdb to Docker"
+  DEV1=/dev/sdb
+  # Check if there is an additional data disk
+  if [ -e /dev/sdc ]; then
+    DEV2=/dev/sdc
+  elif [ -e /dev/sdd ]; then
+    DEV2=/dev/sdd
   else
-    DEV1=/dev/xvdb
-    DEV2=/dev/xvdc
+    unset DEV2
   fi
 fi
+
+############ END AZURE ADAPTATION
 
 # resolve symlinks
 DEV1=$(readlink -f $DEV1)
 DEV2=$(readlink -f $DEV2)
 
 # resolve NVMe devices
-if [[ ! -e "$DEV1" && ! -e "$DEV2" ]]; then
-  yum install -y nvme-cli || true
-  NVME_NODES=( `nvme list | grep '^/dev/' | awk '{print $1}' | sort` )
-  NVME_NODES_CNT=${#NVME_NODES[@]}
-  if [[ "${NVME_NODES_CNT}" -gt 0 ]]; then
-    # get root device and node
-    ROOT_DEV=$(df -hv / | grep '^/dev' | awk '{print $1}')
-    for nvme_dev in `nvme list | grep -v ${ROOT_DEV} | grep '^/dev/' | awk '{print $1}' | sort`; do
-      if [[ $ROOT_DEV = ${nvme_dev}* ]]; then
-        ROOT_NODE=$nvme_dev
-      fi
-    done
+# no need for advanced disk detection in Azure, commented out
 
-    # get instance storage devices
-    if [ -z ${ROOT_NODE+x} ]; then
-        NVME_EPH_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
-    else
-        NVME_EPH_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
-    fi
-    NVME_EPH_BLK_DEVS_CNT=${#NVME_EPH_BLK_DEVS[@]}
-    echo "Number of NVMe local storage block devices: $NVME_EPH_BLK_DEVS_CNT"
+# if [[ ! -e "$DEV1" && ! -e "$DEV2" ]]; then
+#   yum install -y nvme-cli || true
+#   NVME_NODES=( `nvme list | grep '^/dev/' | awk '{print $1}' | sort` )
+#   NVME_NODES_CNT=${#NVME_NODES[@]}
+#   if [[ "${NVME_NODES_CNT}" -gt 0 ]]; then
+#     # get root device and node
+#     ROOT_DEV=$(df -hv / | grep '^/dev' | awk '{print $1}')
+#     for nvme_dev in `nvme list | grep -v ${ROOT_DEV} | grep '^/dev/' | awk '{print $1}' | sort`; do
+#       if [[ $ROOT_DEV = ${nvme_dev}* ]]; then
+#         ROOT_NODE=$nvme_dev
+#       fi
+#     done
 
-    # get EBS devices
-    if [ -z ${ROOT_NODE+x} ]; then
-        NVME_EBS_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
-    else
-        NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
-    fi
-    NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
-    echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
+#     # get instance storage devices
+#     if [ -z ${ROOT_NODE+x} ]; then
+#         NVME_EPH_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
+#     else
+#         NVME_EPH_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
+#     fi
+#     NVME_EPH_BLK_DEVS_CNT=${#NVME_EPH_BLK_DEVS[@]}
+#     echo "Number of NVMe local storage block devices: $NVME_EPH_BLK_DEVS_CNT"
+
+#     # get EBS devices
+#     if [ -z ${ROOT_NODE+x} ]; then
+#         NVME_EBS_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
+#     else
+#         NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
+#     fi
+#     NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
+#     echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
   
-    # assign devices
-    if [ "$NVME_EPH_BLK_DEVS_CNT" -ge 2 ]; then
-      DEV1=${NVME_EPH_BLK_DEVS[0]}
-      DEV2=${NVME_EPH_BLK_DEVS[1]}
-    elif [ "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]; then
-      DEV1=${NVME_EPH_BLK_DEVS[0]}
-      if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 1 ]; then
-        DEV2=${NVME_EBS_BLK_DEVS[0]}
-      else
-        if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
-          DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
-        else
-          DEV2=/dev/xvdb
-        fi
-      fi
-    else
-      if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 2 ]; then
-        DEV1=${NVME_EBS_BLK_DEVS[0]}
-        DEV2=${NVME_EBS_BLK_DEVS[1]}
-      elif [ "$NVME_EBS_BLK_DEVS_CNT" -eq 1 ]; then
-        DEV1=${NVME_EBS_BLK_DEVS[0]}
-        if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
-          DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
-        else
-          DEV2=/dev/xvdb
-        fi
-      else
-        DEV1=/dev/xvdb
-        DEV2=/dev/xvdc
-      fi
-    fi
-  else
-    DEV1=/dev/xvdb
-    DEV2=/dev/xvdc
-  fi
-fi
+#     # assign devices
+#     if [ "$NVME_EPH_BLK_DEVS_CNT" -ge 2 ]; then
+#       DEV1=${NVME_EPH_BLK_DEVS[0]}
+#       DEV2=${NVME_EPH_BLK_DEVS[1]}
+#     elif [ "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]; then
+#       DEV1=${NVME_EPH_BLK_DEVS[0]}
+#       if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 1 ]; then
+#         DEV2=${NVME_EBS_BLK_DEVS[0]}
+#       else
+#         if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+#           DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
+#         else
+#           DEV2=/dev/xvdb
+#         fi
+#       fi
+#     else
+#       if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 2 ]; then
+#         DEV1=${NVME_EBS_BLK_DEVS[0]}
+#         DEV2=${NVME_EBS_BLK_DEVS[1]}
+#       elif [ "$NVME_EBS_BLK_DEVS_CNT" -eq 1 ]; then
+#         DEV1=${NVME_EBS_BLK_DEVS[0]}
+#         if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+#           DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
+#         else
+#           DEV2=/dev/xvdb
+#         fi
+#       else
+#         DEV1=/dev/xvdb
+#         DEV2=/dev/xvdc
+#       fi
+#     fi
+#   else
+#     DEV1=/dev/xvdb
+#     DEV2=/dev/xvdc
+#   fi
+# fi
+
 # get sizes
 DEV1_SIZE=$(blockdev --getsize64 $DEV1)
 DEV2_SIZE=$(blockdev --getsize64 $DEV2)
@@ -147,17 +192,30 @@ echo "DEV2: $DEV2 $DEV2_SIZE"
 # delegate devices for HySDS work dir and docker storage volumes; 
 # if only one ephemeral disk, use for docker; # otherwise larger 
 # one is for HySDS work dir
-if [[ "$EPH_BLK_DEVS_CNT" -eq 1 || "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]]; then
-  DOCKER_DEV=$DEV1
-  DATA_DEV=$DEV2
+
+# AWS version:
+
+# if [[ "$EPH_BLK_DEVS_CNT" -eq 1 || "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]]; then
+#   DOCKER_DEV=$DEV1
+#   DATA_DEV=$DEV2
+# else
+#   if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
+#     DATA_DEV=$DEV1
+#     DOCKER_DEV=$DEV2
+#   else
+#     DATA_DEV=$DEV2
+#     DOCKER_DEV=$DEV1
+#   fi
+# fi
+
+# Azure version:
+
+if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
+  DATA_DEV=$DEV1
+  DOCKER_DEV=$DEV2
 else
-  if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
-    DATA_DEV=$DEV1
-    DOCKER_DEV=$DEV2
-  else
-    DATA_DEV=$DEV2
-    DOCKER_DEV=$DEV1
-  fi
+  DATA_DEV=$DEV2
+  DOCKER_DEV=$DEV1
 fi
 
 # log devices
@@ -183,7 +241,7 @@ if [[ -e "$DATA_DEV" ]]; then
 
   # mount as ${DATA_DIR}
   mkdir -p $DATA_DIR || true
-  mount $DATA_DEV $DATA_DIR
+  mount -o inode64 $DATA_DEV $DATA_DIR
 
   # create work and unpack index style
   mkdir -p ${DATA_DIR}/work || true
@@ -252,7 +310,7 @@ if [[ -e "$DOCKER_DEV" ]]; then
     "dm.use_deferred_removal=true",
     "dm.use_deferred_deletion=true",
     "dm.fs=xfs",
-    "dm.basesize=100G"
+    "dm.basesize=50G"
   ]
 }
 EOF

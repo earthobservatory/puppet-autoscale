@@ -12,6 +12,10 @@ from datetime import datetime
 from pprint import pformat
 import boto3
 from botocore.exceptions import ClientError
+from azure.common.credentials import ServicePrincipalCredentials
+from azure.mgmt.compute import ComputeManagementClient
+from azure.mgmt.resource import ResourceManagementClient, SubscriptionClient
+from azure.common.client_factory import get_client_from_auth_file
 
 
 log_format = "[%(asctime)s: %(levelname)s/%(funcName)s] %(message)s"
@@ -102,14 +106,15 @@ def is_jobless(root_work, inactivity_secs, logger=None):
 
 @backoff.on_exception(backoff.expo, ClientError, max_tries=10, max_value=512)
 def get_all_groups(c):
-    """Get all AutoScaling groups."""
-    return c.describe_auto_scaling_groups()['AutoScalingGroups']
+    """Get all AutoScaling groups. Change HySDS to the name of the Resource Group!"""
+    if c is None: c = get_client_from_auth_file(ComputeManagementClient)
+    return c.virtual_machine_scale_sets.list('HySDS')
 
 
 @backoff.on_exception(backoff.expo, ClientError, max_tries=10, max_value=512)
 def get_all_fleets(c):
     """Get all Spot Fleet requests."""
-
+    if c is None: c = get_client_from_auth_file(ComputeManagementClient)
     fleets = []
     next_token = None
     while True:
@@ -140,12 +145,11 @@ def get_fleet_instances(c, fleet_name):
         if next_token is None: break
     return instances
 
-
 @backoff.on_exception(backoff.expo, ClientError, max_value=512)
 def detach_instance(c, as_group, id):
-    """Detach instance from AutoScaling group."""
-    c.detach_instances(InstanceIds=[id], AutoScalingGroupName=as_group,
-                       ShouldDecrementDesiredCapacity=True)
+    """Detach instance from AutoScaling group. Change HySDS to the name of the Resource Group!"""
+    if c is None: c = get_client_from_auth_file(ComputeManagementClient)
+    c.virtual_machine_scale_set_vms.delete('HySDS',as_group,id)
 
 
 @backoff.on_exception(backoff.expo, ClientError, max_value=512)
@@ -177,48 +181,28 @@ def seppuku(logger=None):
     time.sleep(meditation_time)
 
     # instances may be part of autoscaling group or spot fleet
-    as_group = None
+    as_group = 'vmss'
+    instance = None
     spot_fleet = None
 
     # check if instance part of an autoscale group
-    id = str(requests.get('http://169.254.169.254/latest/meta-data/instance-id').content)
+    id = str(requests.get('http://169.254.169.254/metadata/instance/compute/vmId?api-version=2017-08-01&format=text',headers={"Metadata":"true"}).content)
     logging.info("Our instance id: %s" % id)
-    c = boto3.client('autoscaling')
-    for group in get_all_groups(c):
-        group_name = str(group['AutoScalingGroupName'])
-        logging.info("Checking group: %s" % group_name)
-        for i in group['Instances']:
-            asg_inst_id = str(i['InstanceId'])
-            logging.info("Checking group instance: %s" % asg_inst_id)
-            if id == asg_inst_id:
-                as_group = group_name
-                logging.info("Matched!")
-                break
-    if as_group is None:
-        logging.info("This instance %s is not part of any autoscale group." % id)
+    c = get_client_from_auth_file(ComputeManagementClient)
+    # Change HySDS to the name of the Resource Group!
+    instances = c.virtual_machine_scale_set_vms.list('HySDS',as_group)
+    for ins in instances:
+        if id == ins.vm_id:
+            instance = ins.instance_id
 
-        # check if instance is part of a spot fleet
-        c = boto3.client('ec2')
-        for fleet in get_all_fleets(c):
-            fleet_name = str(fleet['SpotFleetRequestId'])
-            logging.info("Checking fleet: %s" % fleet_name)
-            for i in get_fleet_instances(c, fleet_name):
-                sf_inst_id = str(i['InstanceId'])
-                logging.info("Checking fleet instance: %s" % sf_inst_id)
-                if id == sf_inst_id:
-                    spot_fleet = fleet_name
-                    logging.info("Matched!")
-                    break
-        if spot_fleet is None:
-            logging.info("This instance %s is not part of any spot fleet." % id)
-
+    id = instance
     # gracefully shutdown
     while True:
         try: graceful_shutdown(as_group, spot_fleet, id, logger)
         except Exception, e:
             logging.error("Got exception in graceful_shutdown(): %s\n%s" %
                           (str(e), traceback.format_exc()))
-        time.sleep(randint(0, 600))
+        time.sleep(randint(0, 600)) 
 
 
 def graceful_shutdown(as_group, spot_fleet, id, logger=None):
@@ -246,10 +230,10 @@ def graceful_shutdown(as_group, spot_fleet, id, logger=None):
     # detach if part of a spot fleet or autoscaling group
     try:
         if as_group is not None:
-            c = boto3.client('autoscaling')
+            c = get_client_from_auth_file(ComputeManagementClient)
             detach_instance(c, as_group, id)
         if spot_fleet is not None:
-            c = boto3.client('ec2')
+            c = get_client_from_auth_file(ComputeManagementClient)
             decrement_fleet(c, spot_fleet)
     except Exception, e:
         logging.error("Got exception in graceful_shutdown(): %s\n%s" %
