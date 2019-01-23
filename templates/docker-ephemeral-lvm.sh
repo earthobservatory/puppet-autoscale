@@ -217,15 +217,11 @@ echo "DEV2: $DEV2 $DEV2_SIZE"
 
 # Azure version:
 
-# Check if both devices exist, if they do, perform the comparison
-if [ -z "$DEV1" ] && [ -z "$DEV2" ]; then
-  if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
-    DATA_DEV=$DEV1
-    DOCKER_DEV=$DEV2
-  else
-    DATA_DEV=$DEV2
-    DOCKER_DEV=$DEV1
-  fi
+if [ -z "$DEV2" ]; then
+  DOCKER_DEV=$DEV1
+  DATA_DEV=$DEV2
+else
+  DOCKER_DEV=$DEV1
 fi
 
 # log devices
