@@ -74,7 +74,6 @@ $stop_docker
 # exceeeds 150GB. If it is, partition 50GB to Docker and rest to /data,
 # else, dedicate the storage to Docker
 
-TEMP_DISK='/dev/sdb'
 TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
 
 # Unmount the temporary disk first
@@ -107,8 +106,12 @@ fi
 ############ END AZURE ADAPTATION
 
 # resolve symlinks
-DEV1=$(readlink -f $DEV1)
-DEV2=$(readlink -f $DEV2)
+if [ -z "$DEV1" ]; then
+  DEV1=$(readlink -f $DEV1)
+fi
+if [ -z "$DEV2" ]; then
+  DEV2=$(readlink -f $DEV2)
+fi
 
 # resolve NVMe devices
 # no need for advanced disk detection in Azure, commented out
@@ -182,8 +185,12 @@ DEV2=$(readlink -f $DEV2)
 # fi
 
 # get sizes
-DEV1_SIZE=$(blockdev --getsize64 $DEV1)
-DEV2_SIZE=$(blockdev --getsize64 $DEV2)
+if [ -z "$DEV1" ]; then
+  DEV1_SIZE=$(blockdev --getsize64 "$DEV1")
+fi
+if [ -z "$DEV2" ]; then
+  DEV2_SIZE=$(blockdev --getsize64 "$DEV2")
+fi
 
 # log device sizes
 echo "DEV1: $DEV1 $DEV1_SIZE"
@@ -210,12 +217,15 @@ echo "DEV2: $DEV2 $DEV2_SIZE"
 
 # Azure version:
 
-if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
-  DATA_DEV=$DEV1
-  DOCKER_DEV=$DEV2
-else
-  DATA_DEV=$DEV2
-  DOCKER_DEV=$DEV1
+# Check if both devices exist, if they do, perform the comparison
+if [ -z "$DEV1" ] && [ -z "$DEV2" ]; then
+  if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
+    DATA_DEV=$DEV1
+    DOCKER_DEV=$DEV2
+  else
+    DATA_DEV=$DEV2
+    DOCKER_DEV=$DEV1
+  fi
 fi
 
 # log devices
@@ -234,18 +244,18 @@ if [[ -e "$DATA_DEV" ]]; then
   cp -rp ${DATA_DIR} ${DATA_DIR}.orig || true
 
   # unmount block device if not already
-  umount $DATA_DEV 2>/dev/null || true
+  umount "$DATA_DEV" 2>/dev/null || true
 
   # format XFS
-  mkfs.xfs -f $DATA_DEV
+  mkfs.xfs -f "$DATA_DEV"
 
   # mount as ${DATA_DIR}
   mkdir -p $DATA_DIR || true
-  mount -o inode64 $DATA_DEV $DATA_DIR
+  mount -o inode64 "$DATA_DEV" $DATA_DIR
 
   # create work and unpack index style
   mkdir -p ${DATA_DIR}/work || true
-  tar xvfj $(eval echo "~${user}/verdi/src/beefed-autoindex-open_in_new_win.tbz2") -C ${DATA_DIR}/work || true
+  tar xvfj "$(eval echo "~${user}/verdi/src/beefed-autoindex-open_in_new_win.tbz2")" -C ${DATA_DIR}/work || true
 
   # set permissions
   chown -R ${user}:${group} ${DATA_DIR} || true
@@ -262,13 +272,13 @@ if [[ -e "$DOCKER_DEV" ]]; then
   rm -rf /var/lib/docker/*
 
   # unmount block device if not already
-  umount $DOCKER_DEV 2>/dev/null || true
+  umount "$DOCKER_DEV" 2>/dev/null || true
 
   # remove volume group
   vgremove -ff docker || true
 
   # remove physical volume
-  pvremove -ff $DOCKER_DEV || true
+  pvremove -ff "$DOCKER_DEV" || true
 
 #  # determine 75% of volume size to be used for docker data
 #  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
