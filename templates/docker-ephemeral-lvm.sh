@@ -106,11 +106,11 @@ fi
 ############ END AZURE ADAPTATION
 
 # resolve symlinks
-if [ -z "$DEV1" ]; then
-  DEV1=$(readlink -f $DEV1)
+if [ -n "$DEV1" ]; then
+  DEV1=$(readlink -f "$DEV1")
 fi
-if [ -z "$DEV2" ]; then
-  DEV2=$(readlink -f $DEV2)
+if [ -n "$DEV2" ]; then
+  DEV2=$(readlink -f "$DEV2")
 fi
 
 # resolve NVMe devices
@@ -185,10 +185,10 @@ fi
 # fi
 
 # get sizes
-if [ -z "$DEV1" ]; then
+if [ -n "$DEV1" ]; then
   DEV1_SIZE=$(blockdev --getsize64 "$DEV1")
 fi
-if [ -z "$DEV2" ]; then
+if [ -n "$DEV2" ]; then
   DEV2_SIZE=$(blockdev --getsize64 "$DEV2")
 fi
 
@@ -217,7 +217,7 @@ echo "DEV2: $DEV2 $DEV2_SIZE"
 
 # Azure version:
 
-if [ -z "$DEV2" ]; then
+if [ -n "$DEV2" ]; then
   DOCKER_DEV=$DEV1
   DATA_DEV=$DEV2
 else
