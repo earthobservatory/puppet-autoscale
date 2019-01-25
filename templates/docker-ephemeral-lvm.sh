@@ -77,27 +77,24 @@ $stop_docker
 TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
 
 # Unmount the temporary disk first
-# TODO: may have to implement disk autodetection, if sdb1 doesn't actually 
-# exist because somehow the disk persisted after a reboot
-umount /dev/sdb1
+umount /dev/sdb?* || { echo "No ephemeral disk detected, not unmountng" ; : ; }
 
 # Write a new partition table to temporary disk, effectively nuking it
 parted --script /dev/sdb mktable gpt
 
 if [[ "$TEMP_DISK_SIZE" -gt "161061273600" ]]; then
   echo "Partitioning disk, dedicating 50GB to Docker"
-  parted --script -a optimal /dev/sdb mkpart docker '0%' 51200MiB \
+  parted --script -a optimal /dev/sdb mkpart docker xfs '0%' 51200MiB \
                                       mkpart data xfs 51200MiB '100%'
   DEV1=/dev/sdb1
   DEV2=/dev/sdb2
 else
   echo "Not partitioning disk, dedicating /dev/sdb to Docker"
-  DEV1=/dev/sdb
+  parted --script -a optimal /dev/sdb mkpart docker xfs '0%' '100%'
+  DEV1=/dev/sdb1
   # Check if there is an additional data disk
   if [ -e /dev/sdc ]; then
     DEV2=/dev/sdc
-  elif [ -e /dev/sdd ]; then
-    DEV2=/dev/sdd
   else
     unset DEV2
   fi
