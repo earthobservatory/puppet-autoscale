@@ -74,10 +74,15 @@ $stop_docker
 # exceeeds 150GB. If it is, partition 50GB to Docker and rest to /data,
 # else, dedicate the storage to Docker
 
-TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
-
 # Unmount the temporary disk first
-umount /dev/sdb?* || { echo "No ephemeral disk detected, not unmountng" ; : ; }
+umount /dev/sdb?* || { echo "No ephemeral disk partitions detected, not unmounting" ; : ; }
+
+# Remove docker volume groups, just in case there's a volume group somewhere in there
+# This is required for parted to work
+# There should be a better solution for it in the future
+vgremove -ff docker || true
+
+TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
 
 # Write a new partition table to temporary disk, effectively nuking it
 parted --script /dev/sdb mktable gpt
