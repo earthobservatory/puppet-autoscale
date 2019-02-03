@@ -417,4 +417,15 @@ class autoscale inherits verdi {
     }
   }
 
+  #####################################################
+  # remove docker to mitigate Azure quirks
+  #####################################################
+
+  exec { 'remove_docker':
+    command => '/bin/yum remove docker-ce -y; /bin/nmcli connection delete docker0 || true',
+    require => Service['docker'],
+    returns => 0,
+  }
+
+
 }

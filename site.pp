@@ -14,11 +14,11 @@ class yum {
 }
 
 class docker {
-   yumrepo { "docker-ce-stable":
-      baseurl => "https://download.docker.com/linux/centos/7/$architecture/stable",
-      enabled => 1,
-      gpgcheck => 0
-   }
+  yumrepo { "docker-ce-stable":
+    baseurl => "https://download.docker.com/linux/centos/7/$architecture/stable",
+    enabled => 1,
+    gpgcheck => 0
+  }
 }
 
 node 'default' {

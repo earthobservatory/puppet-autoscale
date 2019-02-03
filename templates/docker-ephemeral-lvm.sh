@@ -28,6 +28,19 @@ else
   stop_docker="service docker stop"
 fi
 
+# install docker if not installed
+if ! rpm -q docker-ce; then
+  yum install docker-ce docker-ce-cli -y
+fi
+
+# check if user is in docker group
+if id -nG "$user" | grep -qw "docker"; then
+  echo "$user user is in docker group"
+else
+  echo "$user user is not in docker group, adding..."
+  usermod -aG docker $user
+fi
+
 $stop_docker
 
 # get ephemeral storage devices
@@ -83,6 +96,8 @@ umount /dev/sdb?* || { echo "No ephemeral disk partitions detected, not unmounti
 vgremove -ff docker || true
 
 TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
+
+echo "Ephemeral disk size: $TEMP_DISK_SIZE / 161061273600 (partitioning disk threshold)"
 
 # Write a new partition table to temporary disk, effectively nuking it
 parted --script /dev/sdb mktable gpt
