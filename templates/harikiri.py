@@ -181,7 +181,7 @@ def seppuku(logger=None):
     time.sleep(meditation_time)
 
     # instances may be part of autoscaling group or spot fleet
-    as_group = 'vmss'
+    as_group = None
     instance = None
     spot_fleet = None
 
@@ -190,12 +190,19 @@ def seppuku(logger=None):
     logging.info("Our instance id: %s" % id)
     c = get_client_from_auth_file(ComputeManagementClient)
     # Change HySDS to the name of the Resource Group!
-    instances = c.virtual_machine_scale_set_vms.list('HySDS',as_group)
-    for ins in instances:
-        if id == ins.vm_id:
-            instance = ins.instance_id
+    scale_sets = c.virtual_machine_scale_sets.list('HySDS')    
+    for scale_set in scale_sets:
+        instances = c.virtual_machine_scale_set_vms.list('HySDS',scale_set)
+        for ins in instances:
+            if id == ins.vm_id:
+                logging.info("Matched!")
+                instance = ins.instance_id
+                as_group = scale_set.name
 
     id = instance
+    if as_group is None:
+        logging.info("This instance %s is not part of any autoscale group." % id)
+
     # gracefully shutdown
     while True:
         try: graceful_shutdown(as_group, spot_fleet, id, logger)
