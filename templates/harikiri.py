@@ -193,7 +193,7 @@ def seppuku(logger=None):
 
     logging.info("Our instance id: %s" % id)
     logging.info("Our resource group: %s" % resource_group)
-    logging.info("Our vmss: %s" & as_group)
+    logging.info("Our vmss: %s" % as_group)
     c = get_client_from_auth_file(ComputeManagementClient)
     instances = c.virtual_machine_scale_set_vms.list(resource_group,as_group)
     for ins in instances:
