@@ -108,7 +108,8 @@ def is_jobless(root_work, inactivity_secs, logger=None):
 def get_all_groups(c):
     """Get all AutoScaling groups. Change HySDS to the name of the Resource Group!"""
     if c is None: c = get_client_from_auth_file(ComputeManagementClient)
-    return c.virtual_machine_scale_sets.list('HySDS')
+    resource_group = str(requests.get('http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
+    return c.virtual_machine_scale_sets.list(resource_group)
 
 
 @backoff.on_exception(backoff.expo, ClientError, max_tries=10, max_value=512)
@@ -147,9 +148,10 @@ def get_fleet_instances(c, fleet_name):
 
 @backoff.on_exception(backoff.expo, ClientError, max_value=512)
 def detach_instance(c, as_group, id):
-    """Detach instance from AutoScaling group. Change HySDS to the name of the Resource Group!"""
+    """Detach instance from AutoScaling group"""
     if c is None: c = get_client_from_auth_file(ComputeManagementClient)
-    c.virtual_machine_scale_set_vms.delete('HySDS',as_group,id)
+    resource_group = str(requests.get('http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
+    c.virtual_machine_scale_set_vms.delete(resource_group,as_group,id)
 
 
 @backoff.on_exception(backoff.expo, ClientError, max_value=512)
@@ -182,25 +184,24 @@ def seppuku(logger=None):
 
     # instances may be part of autoscaling group or spot fleet
     as_group = None
-    instance = None
     spot_fleet = None
 
     # check if instance part of an autoscale group
-    id = str(requests.get('http://169.254.169.254/metadata/instance/compute/vmId?api-version=2017-08-01&format=text',headers={"Metadata":"true"}).content)
-    logging.info("Our instance id: %s" % id)
-    c = get_client_from_auth_file(ComputeManagementClient)
-    # Change HySDS to the name of the Resource Group!
-    scale_sets = c.virtual_machine_scale_sets.list('HySDS')    
-    for scale_set in scale_sets:
-        instances = c.virtual_machine_scale_set_vms.list('HySDS',scale_set)
-        for ins in instances:
-            if id == ins.vm_id:
-                logging.info("Matched!")
-                instance = ins.instance_id
-                as_group = scale_set.name
+    id = str(requests.get('http://169.254.169.254/metadata/instance/compute/vmId?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
+    resource_group = str(requests.get('http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
+    as_group = str(requests.get('http://169.254.169.254/metadata/instance/compute/vmScaleSetName?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
 
-    id = instance
-    if as_group is None:
+    logging.info("Our instance id: %s" % id)
+    logging.info("Our resource group: %s" % resource_group)
+    logging.info("Our vmss: %s" & as_group)
+    c = get_client_from_auth_file(ComputeManagementClient)
+    instances = c.virtual_machine_scale_set_vms.list(resource_group,as_group)
+    for ins in instances:
+        if id == ins.vm_id:
+            logging.info("Matched!")
+            id = ins.instance_id
+
+    if as_group is None or not as_group:
         logging.info("This instance %s is not part of any autoscale group." % id)
 
     # gracefully shutdown
