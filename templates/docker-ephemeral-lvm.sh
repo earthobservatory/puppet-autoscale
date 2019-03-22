@@ -31,13 +31,11 @@ fi
 $stop_docker
 
 # get ephemeral storage devices
-# EPH_BLK_DEVS_CNT=1
 # EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ephemeral | sort` )
 # EPH_BLK_DEVS_CNT=${#EPH_BLK_DEVS[@]}
 # echo "Number of ephemeral storage devices: $EPH_BLK_DEVS_CNT"
 
 # get EBS block devices
-# EBS_BLK_DEVS_CNT=2
 # EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ebs | sort` )
 # EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
 # echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
@@ -104,6 +102,9 @@ else
     unset DEV2
   fi
 fi
+
+# Delay for 5 seconds as the blockdev command may not immediately recognise the new disk
+sleep 5
 
 ############ END AZURE ADAPTATION
 
@@ -325,5 +326,5 @@ EOF
 
 fi
 
-$reset_docker
+$reset_docker || "No need to reset. Moving on"
 $start_docker
