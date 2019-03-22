@@ -106,7 +106,7 @@ def is_jobless(root_work, inactivity_secs, logger=None):
 
 @backoff.on_exception(backoff.expo, ClientError, max_tries=10, max_value=512)
 def get_all_groups(c):
-    """Get all AutoScaling groups. Change HySDS to the name of the Resource Group!"""
+    """Get all AutoScaling groups."""
     if c is None: c = get_client_from_auth_file(ComputeManagementClient)
     resource_group = str(requests.get('http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2018-02-01&format=text',headers={"Metadata":"true"}).content)
     return c.virtual_machine_scale_sets.list(resource_group)
@@ -210,7 +210,7 @@ def seppuku(logger=None):
         except Exception, e:
             logging.error("Got exception in graceful_shutdown(): %s\n%s" %
                           (str(e), traceback.format_exc()))
-        time.sleep(randint(0, 600)) 
+        time.sleep(randint(0, 600))
 
 
 def graceful_shutdown(as_group, spot_fleet, id, logger=None):
