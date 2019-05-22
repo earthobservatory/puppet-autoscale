@@ -84,6 +84,7 @@ TEMP_DISK_SIZE=$(blockdev --getsize64 /dev/sdb) # gets disk size in bytes
 
 # Write a new partition table to temporary disk, effectively nuking it
 parted --script /dev/sdb mktable gpt
+sleep 5 # Sleep for 5 seconds as the new partition table requires some time to take effect
 
 if [[ "$TEMP_DISK_SIZE" -gt "161061273600" ]]; then
   echo "Partitioning disk, dedicating 50GB to Docker"
