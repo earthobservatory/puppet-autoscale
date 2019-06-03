@@ -3,7 +3,7 @@
 # This script will DESTROY the second ephemeral/EBS volume and remount it for Docker volume storage.
 
 # update system first
-yum update -y || true
+#yum update -y || true
 
 # get user/group
 if [[ -d "/home/ops" ]]; then
